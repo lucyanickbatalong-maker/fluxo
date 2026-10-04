@@ -457,8 +457,8 @@ footer{padding:16px;text-align:center;font-size:12px;color:var(--mut)}
         <button class="role-card on" data-role="pro"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13a8 8 0 0 1 16 0"/><rect x="2.5" y="13" width="4.5" height="7" rx="1.6"/><rect x="17" y="13" width="4.5" height="7" rx="1.6"/></svg>Professionnel<small>Console d'un box de prise en charge</small></button>
         <button class="role-card" data-role="sup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-8M21 20H3"/></svg>Superviseur<small>Régie + ensemble des boxes</small></button>
       </div>
-      <label class="auth-field">Nom ou matricule<input id="lgName" autocomplete="off" placeholder="ex. Dr A. Martin"></label>
-      <label class="auth-field">Code personnel<input id="lgCode" type="password" inputmode="numeric" maxlength="8" placeholder="••••"></label>
+      <label class="auth-field"><span id="lgNameLab">Nom ou matricule</span><input id="lgName" autocomplete="off" placeholder="ex. Dr A. Martin"></label>
+      <label class="auth-field"><span id="lgCodeLab">Code personnel</span><input id="lgCode" type="password" placeholder="••••"></label>
       <p class="auth-err" id="lgErr" hidden></p>
       <p class="auth-notice" id="lgNotice" hidden></p>
       <button class="btn blue big" id="lgSubmit">Se connecter</button>
@@ -765,7 +765,9 @@ function renderTop(){
 }
 function renderLogin(){
   const live=SB.mode==="live";
-  $("#lgName").placeholder=live?"ex. a.martin@etablissement.fr":"ex. Dr A. Martin";
+  $("#lgName").placeholder=live?"ex. p.estebanc@fluxo.local":"ex. Dr A. Martin";
+  $("#lgNameLab").textContent=live?"Email professionnel (étape 3)":"Nom ou matricule";
+  $("#lgCodeLab").textContent=live?"Mot de passe du compte":"Code personnel";
   $("#authDemoBox").hidden=live;
   if(!$("#authDemoChips").children.length){
     $("#authDemoChips").innerHTML=ACCOUNTS.map((a,i)=>`<span class="auth-chip" data-i="${i}">${a.name}<small>· ${a.role==="pro"?"box":"régie"} · code ${a.code}</small></span>`).join("");
