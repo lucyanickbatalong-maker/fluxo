@@ -732,8 +732,21 @@ document.addEventListener("pointerdown",()=>{ // déverrouille audio + voix au p
   try{const c=ac();if(c.state==="suspended")c.resume();}catch(e){}
   try{const sy=window.speechSynthesis;if(sy){const u=new SpeechSynthesisUtterance(" ");u.volume=0;sy.speak(u);}}catch(e){}
 },{once:true});
-const DIGFR=["zéro","un","deux","trois","quatre","cinq","six","sept","huit","neuf"];
-function spokenCode(c){return c[0]+", "+c.slice(1).split("").map(d=>DIGFR[+d]).join(", ");}
+function frNum(n){ // 0-99 en français naturel : dix, onze, vingt et un, quatre-vingt-onze...
+  const U=["zéro","un","deux","trois","quatre","cinq","six","sept","huit","neuf","dix","onze","douze","treize","quatorze","quinze","seize","dix-sept","dix-huit","dix-neuf"];
+  if(n<20)return U[n];
+  const t=Math.floor(n/10),u=n%10;
+  if(t===7)return u===1?"soixante et onze":"soixante-"+U[10+u];
+  if(t===8)return u===0?"quatre-vingts":"quatre-vingt-"+U[u];
+  if(t===9)return "quatre-vingt-"+U[10+u];
+  const T={2:"vingt",3:"trente",4:"quarante",5:"cinquante",6:"soixante"}[t];
+  if(u===0)return T;
+  if(u===1)return T+" et un";
+  return T+"-"+U[u];
+}
+function spokenCode(c){ // "A05" -> "A, cinq" · "A10" -> "A, dix" · "A21" -> "A, vingt et un"
+  return c[0]+", "+frNum(parseInt(c.slice(1),10));
+}
 function announceCall(t){
   chime();
   if(!state.voice)return;
