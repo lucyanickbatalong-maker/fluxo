@@ -245,7 +245,7 @@ main{flex:1}
 .userchip{display:none;align-items:center;gap:9px;padding:5px 6px 5px 13px;border:1px solid var(--line);border-radius:99px;background:#fff;font-size:13px;font-weight:700}
 .userchip.on{display:flex}
 .userchip .urole{font-size:10px;font-weight:800;letter-spacing:.08em;color:var(--bleu);text-transform:uppercase}
-.userchip .uout{width:28px;height:28px;border-radius:50%;border:1px solid var(--line);display:grid;place-items:center;color:var(--mut)}
+.userchip .uout{display:flex;align-items:center;gap:5px;height:28px;padding:0 11px 0 9px;border-radius:99px;border:1px solid var(--line);color:var(--mut);font-weight:700;font-size:12px}
 .userchip .uout:hover{color:var(--rouge);border-color:var(--rouge)}
 .userchip .uout svg{width:14px;height:14px}
 
@@ -314,7 +314,7 @@ footer{padding:16px;text-align:center;font-size:12px;color:var(--mut)}
   <div class="tright">
     <span class="userchip" id="userChip">
       <span class="urole" id="uRole"></span><span id="uName"></span>
-      <button class="uout" id="uOut" title="Se déconnecter" aria-label="Se déconnecter"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg></button>
+      <button class="uout" id="uOut" title="Se déconnecter"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg>Se déconnecter</button>
     </span>
     <span class="livechip" id="liveChip"><i></i>DÉMO</span>
     <span id="demoWrap" style="display:flex"><label class="switch"><input type="checkbox" id="demoToggle" checked><span class="sl"></span><span class="swlab">Démo</span></label></span>
@@ -322,6 +322,10 @@ footer{padding:16px;text-align:center;font-size:12px;color:var(--mut)}
     <button id="soundBtn" class="iconbtn" title="Couper / activer le son" aria-label="Son">
       <svg id="sndOn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6.5 9H3v6h3.5L11 19z"/><path d="M15 9a4.2 4.2 0 0 1 0 6M18 6.5a8 8 0 0 1 0 11"/></svg>
       <svg id="sndOff" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M11 5 6.5 9H3v6h3.5L11 19z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg>
+    </button>
+    <button id="voiceBtn" class="iconbtn" title="Annonce vocale des appels (ticket + box)" aria-label="Annonce vocale">
+      <svg id="voxOn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l14-6v14L3 13v-2z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/><path d="M20 8a6 6 0 0 1 0 8"/></svg>
+      <svg id="voxOff" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M3 11l14-6v14L3 13v-2z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/><path d="M17 9.5l5 5M22 9.5l-5 5"/></svg>
     </button>
   </div>
 </header>
@@ -529,7 +533,7 @@ const state={
   view:"board", sound:true, demo:true, selBox:2,
   tickets:[], counters:{n:0}, seq:0,
   boxes:[1,2,3,4,5].map(i=>({id:i,name:"Box "+i,state:"closed",cur:null,autoNext:true,autoAt:0,sim:0})),
-  lastCall:null, nextArrival:0, kioskTicket:null,
+  lastCall:null, nextArrival:0, kioskTicket:null, voice:true,
   user:null, pendView:null, authNotice:null
 };
 const VIEW0="board";
@@ -589,7 +593,7 @@ async function sbRefresh(){
       .sort((a,b)=>(b.calledAt||0)-(a.calledAt||0))[0];
     if(recent){
       state.lastCall=recent;
-      if(recent.code!==prevCode&&recent.state==="called"){chime();flashBoard();}
+      if(recent.code!==prevCode&&recent.state==="called"){announceCall(recent);flashBoard();}
     }
     renderAll();
   }catch(e){console.warn("FLUXO : rafraîchissement impossible",e);}
@@ -629,7 +633,7 @@ async function callNext(box){
   t.state="called";t.box=box.id;t.calledAt=now();
   box.state="ringing";box.cur=t;box.autoAt=now();
   state.lastCall=t;
-  chime();flashBoard();
+  announceCall(t);flashBoard();
   renderAll();
   return t;
 }
@@ -721,7 +725,28 @@ function chime(){
   if(!state.sound)return;
   try{const c=ac();if(c.state==="suspended")c.resume();const t=c.currentTime;tone(880,t,0.35);tone(659.25,t+0.28,0.55);}catch(e){}
 }
-document.addEventListener("pointerdown",()=>{try{const c=ac();if(c.state==="suspended")c.resume();}catch(e){}},{once:true});
+document.addEventListener("pointerdown",()=>{ // déverrouille audio + voix au premier contact
+  try{const c=ac();if(c.state==="suspended")c.resume();}catch(e){}
+  try{const sy=window.speechSynthesis;if(sy){const u=new SpeechSynthesisUtterance(" ");u.volume=0;sy.speak(u);}}catch(e){}
+},{once:true});
+const DIGFR=["zéro","un","deux","trois","quatre","cinq","six","sept","huit","neuf"];
+function spokenCode(c){return c[0]+", "+c.slice(1).split("").map(d=>DIGFR[+d]).join(", ");}
+function speak(txt){
+  if(!state.voice)return;
+  try{
+    const sy=window.speechSynthesis;if(!sy)return;
+    sy.cancel();
+    const u=new SpeechSynthesisUtterance(txt);
+    u.lang="fr-FR";u.rate=.95;u.pitch=1;
+    const v=sy.getVoices().find(v=>v.lang&&v.lang.toLowerCase().startsWith("fr"));
+    if(v)u.voice=v;
+    sy.speak(u);
+  }catch(e){}
+}
+function announceCall(t){
+  chime();
+  speak("Ticket "+spokenCode(t.code)+". Veuillez vous rendre au box "+t.box+".");
+}
 
 /* ---------- Amorçage d'une journée déjà entamée ---------- */
 function seed(){
@@ -1003,8 +1028,16 @@ function bind(){
   });
   $("#soundBtn").addEventListener("click",()=>{
     state.sound=!state.sound;
+    localStorage.setItem("fluxo_sound",state.sound?"1":"0");
     $("#sndOn").style.display=state.sound?"":"none";
     $("#sndOff").style.display=state.sound?"none":"";
+  });
+  $("#voiceBtn").addEventListener("click",()=>{
+    state.voice=!state.voice;
+    localStorage.setItem("fluxo_voice",state.voice?"1":"0");
+    $("#voxOn").style.display=state.voice?"":"none";
+    $("#voxOff").style.display=state.voice?"none":"";
+    if(!state.voice&&window.speechSynthesis)speechSynthesis.cancel();
   });
   $("#svcGrid").addEventListener("click",async e=>{
     const c=e.target.closest(".svc-card");if(!c)return;
@@ -1087,6 +1120,10 @@ async function init(){
   if(SB.mode==="demo")seed();else await sbRefresh();
   buildSvcGrid();
   bind();
+  state.sound=localStorage.getItem("fluxo_sound")!=="0";
+  state.voice=localStorage.getItem("fluxo_voice")!=="0";
+  $("#sndOn").style.display=state.sound?"":"none";$("#sndOff").style.display=state.sound?"none":"";
+  $("#voxOn").style.display=state.voice?"":"none";$("#voxOff").style.display=state.voice?"none":"";
   const h=location.hash.replace("#","");
   switchView(["board","kiosk","console","regie","login"].includes(h)?h:VIEW0);
   setInterval(tick,1000);
