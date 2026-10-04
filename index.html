@@ -533,7 +533,7 @@ const state={
   view:"board", sound:true, demo:true, selBox:2,
   tickets:[], counters:{n:0}, seq:0,
   boxes:[1,2,3,4,5].map(i=>({id:i,name:"Box "+i,state:"closed",cur:null,autoNext:true,autoAt:0,sim:0})),
-  lastCall:null, nextArrival:0, kioskTicket:null, voice:true,
+  lastCall:null, nextArrival:0, kioskTicket:null, voice:true, lastAnnouncedKey:null,
   user:null, pendView:null, authNotice:null
 };
 const VIEW0="board";
@@ -588,12 +588,15 @@ async function sbRefresh(){
         if(b.cur){b.autoAt=now();b.sim=now()+12000;}
       }
     }
-    const prevCode=state.lastCall?state.lastCall.code:null;
-    const recent=state.tickets.filter(x=>x.state==="called"||x.state==="serving")
+    const recent=state.tickets.filter(x=>x.state==="called")
       .sort((a,b)=>(b.calledAt||0)-(a.calledAt||0))[0];
     if(recent){
       state.lastCall=recent;
-      if(recent.code!==prevCode&&recent.state==="called"){announceCall(recent);flashBoard();}
+      const key=recent.code+"@"+recent.box;
+      if(key!==state.lastAnnouncedKey){
+        state.lastAnnouncedKey=key;
+        if(now()-(recent.calledAt||0)<60000){announceCall(recent);flashBoard();}
+      }
     }
     renderAll();
   }catch(e){console.warn("FLUXO : rafraîchissement impossible",e);}
@@ -731,21 +734,21 @@ document.addEventListener("pointerdown",()=>{ // déverrouille audio + voix au p
 },{once:true});
 const DIGFR=["zéro","un","deux","trois","quatre","cinq","six","sept","huit","neuf"];
 function spokenCode(c){return c[0]+", "+c.slice(1).split("").map(d=>DIGFR[+d]).join(", ");}
-function speak(txt){
+function announceCall(t){
+  chime();
   if(!state.voice)return;
   try{
     const sy=window.speechSynthesis;if(!sy)return;
     sy.cancel();
-    const u=new SpeechSynthesisUtterance(txt);
-    u.lang="fr-FR";u.rate=.95;u.pitch=1;
-    const v=sy.getVoices().find(v=>v.lang&&v.lang.toLowerCase().startsWith("fr"));
-    if(v)u.voice=v;
-    sy.speak(u);
+    const txt="Ticket "+spokenCode(t.code)+". Veuillez vous rendre au box "+t.box+".";
+    for(let i=0;i<3;i++){
+      const u=new SpeechSynthesisUtterance(txt);
+      u.lang="fr-FR";u.rate=.95;
+      const v=sy.getVoices().find(v=>v.lang&&v.lang.toLowerCase().startsWith("fr"));
+      if(v)u.voice=v;
+      sy.speak(u);
+    }
   }catch(e){}
-}
-function announceCall(t){
-  chime();
-  speak("Ticket "+spokenCode(t.code)+". Veuillez vous rendre au box "+t.box+".");
 }
 
 /* ---------- Amorçage d'une journée déjà entamée ---------- */
