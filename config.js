@@ -8,6 +8,6 @@
 // ============================================================
 
 window.FLUXO_CONFIG = {
-  url: "https://iqkemqtemsphzogvyyqy.supabase.co/rest/v1/",
+  url: "https://iqkemqtemsphzogvyyqy.supabase.co",
   anonKey: "sb_publishable_iNRVTbd9W9RMk-JhKgmtbQ_CiBo7deu
 };
