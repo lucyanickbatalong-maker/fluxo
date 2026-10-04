@@ -584,6 +584,13 @@ async function sbRefresh(){
         if(b.cur){b.autoAt=now();b.sim=now()+12000;}
       }
     }
+    const prevCode=state.lastCall?state.lastCall.code:null;
+    const recent=state.tickets.filter(x=>x.state==="called"||x.state==="serving")
+      .sort((a,b)=>(b.calledAt||0)-(a.calledAt||0))[0];
+    if(recent){
+      state.lastCall=recent;
+      if(recent.code!==prevCode&&recent.state==="called"){chime();flashBoard();}
+    }
     renderAll();
   }catch(e){console.warn("FLUXO : rafraîchissement impossible",e);}
 }
@@ -818,7 +825,7 @@ function renderBoard(){
     $("#curCode").textContent=lc.code;
     $("#curBox").textContent=lc.box;
     $("#curSvc").textContent=svcOf(lc).label;
-    $("#curSince").textContent="appelé il y a "+mmss(now()-lc.calledAt);
+    $("#curSince").textContent=lc.state==="serving"?"en prise en charge":"appelé il y a "+mmss(now()-lc.calledAt);
   }else{$("#curCode").textContent="—";$("#curBox").textContent="–";$("#curSvc").textContent="";$("#curSince").textContent="";}
   $("#nextList").innerHTML=q.length
     ? q.slice(0,3).map((t,i)=>`<div class="nx" style="opacity:${(1-i*0.27).toFixed(2)}"><b>${t.code}</b><span>${svcOf(t).label}${t.prio?' · ★':''}</span></div>`).join("")
