@@ -15,6 +15,7 @@
   --r:14px; --shadow:0 10px 30px rgba(16,26,46,.10);
 }
 *{margin:0;padding:0;box-sizing:border-box}
+[hidden]{display:none!important}
 html{-webkit-text-size-adjust:100%}
 body{font-family:'Barlow',system-ui,-apple-system,'Segoe UI',sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;display:flex;flex-direction:column}
 button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
@@ -1040,6 +1041,7 @@ function bind(){
     $("#cfgModal").hidden=false;
   });
   $("#cfgCancel").addEventListener("click",()=>$("#cfgModal").hidden=true);
+  $("#cfgModal").addEventListener("click",e=>{if(e.target.id==="cfgModal")$("#cfgModal").hidden=true;});
   $("#cfgClear").addEventListener("click",()=>{localStorage.removeItem("fluxo_sb_url");localStorage.removeItem("fluxo_sb_key");location.reload();});
   $("#cfgSave").addEventListener("click",()=>{
     const u=$("#cfgUrl").value.trim(),k=$("#cfgKey").value.trim();
