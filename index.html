@@ -817,7 +817,6 @@ function renderLogin(){
   $("#lgNameLab").textContent=live?"Email professionnel (étape 3)":"Nom ou matricule";
   $("#lgCodeLab").textContent=live?"Mot de passe du compte":"Code personnel";
   $("#authDemoBox").hidden=live;
-  $("#roleGrid").style.display=live?"none":"";
   if(!$("#authDemoChips").children.length){
     $("#authDemoChips").innerHTML=ACCOUNTS.map((a,i)=>`<span class="auth-chip" data-i="${i}">${a.name}<small>· ${a.role==="pro"?"box":"régie"} · code ${a.code}</small></span>`).join("");
   }
@@ -912,9 +911,7 @@ function renderConsole(){
   const box=state.boxes[state.selBox-1],q=sortQ();
   $("#boxChips").innerHTML=state.boxes.map(b=>{
     const col={closed:"#C4CDDA",idle:"#1A3EC8",ringing:"#17B26A",busy:"#F5A524",pause:"#C99334"}[b.state];
-    const bound=SB.mode==="live"&&SB.staff&&SB.staff.box_id;
-    const locked=bound&&b.id!==SB.staff.box_id;
-    return `<button class="chipbox${b.id===state.selBox?" on":""}" data-box="${b.id}"${locked?" disabled style=\"opacity:.4;cursor:not-allowed\"":""}>
+    return `<button class="chipbox${b.id===state.selBox?" on":""}" data-box="${b.id}">
       <span class="cdot" style="background:${col}"></span>${b.name}
       <small>${b.cur?b.cur.code:STATE_LAB[b.state]}</small></button>`;
   }).join("");
@@ -1020,24 +1017,16 @@ function renderActive(){
   ({board:renderBoard,kiosk:renderKiosk,console:renderConsole,regie:renderRegie,login:renderLogin})[state.view]();
 }
 function renderAll(){renderTop();renderBoard();renderKiosk();renderConsole();renderRegie();}
-function clearLoginFields(){
-  $("#lgName").value="";$("#lgCode").value="";$("#lgErr").hidden=true;
-}
 function switchView(v){
-  if(v==="console"||v==="regie"){
-    const need=v==="console"?"pro":"sup";
-    if(!state.user||state.user.role!==need){
-      state.pendView=v;
-      state.authNotice=!state.user?"Identification requise pour accéder à cet espace."
-        :(v==="console"?"Espace réservé au rôle professionnel — un compte superviseur n'y a pas accès."
-        :"Espace réservé au rôle superviseur — un compte professionnel n'y a pas accès.");
-      state.view="login";
-      clearLoginFields();
-      document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("on",b.dataset.view===v));
-      document.querySelectorAll(".view").forEach(s=>s.classList.toggle("on",s.id==="v-login"));
-      renderLogin();
-      return;
-    }
+  if((v==="console"||v==="regie")&&(!state.user||(v==="regie"&&state.user.role!=="sup"))){
+    state.pendView=v;
+    state.authNotice=!state.user?"Identification requise pour accéder à cet espace.":"Accès superviseur requis pour la régie — reconnectez-vous avec un compte supervision.";
+    state.view="login";
+    document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("on",b.dataset.view===v));
+    document.querySelectorAll(".view").forEach(s=>s.classList.toggle("on",s.id==="v-login"));
+    $("#lgErr").hidden=true;
+    renderLogin();
+    return;
   }
   state.authNotice=null;
   state.view=v;
@@ -1135,9 +1124,7 @@ function bind(){
   $("#lgCode").addEventListener("keydown",e=>{if(e.key==="Enter")doLogin();});
   $("#uOut").addEventListener("click",async()=>{
     if(SB.mode==="live"){try{await SB.client.auth.signOut();}catch(e){}}
-    state.user=null;SB.staff=null;state.pendView=null;state.authNotice=null;
-    clearLoginFields();
-    renderUserChip();switchView("board");
+    state.user=null;SB.staff=null;renderUserChip();switchView("board");
   });
 }
 function tick(){
