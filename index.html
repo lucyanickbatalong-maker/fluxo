@@ -267,6 +267,7 @@ main{flex:1}
 .tbl tr:last-child td{border:none}
 .tbl .num{font-family:'IBM Plex Mono',monospace;font-size:13px}
 .tbl .code{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:19px;color:var(--bleu-f)}
+.hist-date{padding:6px 10px;border:1.5px solid var(--line);border-radius:9px;font:600 13px 'Barlow',sans-serif;color:var(--ink);background:#fff}
 .stag{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:3px 10px;border-radius:99px}
 .stag i{width:7px;height:7px;border-radius:50%;background:currentColor}
 
@@ -483,7 +484,7 @@ footer{padding:16px;text-align:center;font-size:12px;color:var(--mut)}
   <div class="r-grid">
     <div class="card"><h3>Flux de la journée <span class="mut">arrivées par 30 min (4 dernières heures)</span></h3><div id="spark"></div></div>
     <div class="card"><h3>Boxes</h3><table class="tbl" id="tBoxes"></table></div>
-    <div class="card wide"><h3>Derniers tickets <button class="btn ghost sm" id="resetDay">Réinitialiser la journée</button></h3><table class="tbl" id="tTickets"></table></div>
+    <div class="card wide"><h3><span id="tTickTitle">Derniers tickets</span><span class="mut">jour de tickets 08h→08h · réinitialisation auto à 08h00</span><span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><input type="date" id="histDate" class="hist-date" title="Revoir une journée passée"><button class="btn ghost sm" id="resetDay">Réinitialiser la journée</button></span></h3><table class="tbl" id="tTickets"></table></div>
   </div>
 </section>
 </main>
@@ -533,7 +534,7 @@ const state={
   view:"board", sound:true, demo:true, selBox:2,
   tickets:[], counters:{n:0}, seq:0,
   boxes:[1,2,3,4,5].map(i=>({id:i,name:"Box "+i,state:"closed",cur:null,autoNext:true,autoAt:0,sim:0})),
-  lastCall:null, nextArrival:0, kioskTicket:null, voice:true, lastAnnouncedKey:null,
+  lastCall:null, nextArrival:0, kioskTicket:null, voice:true, lastAnnouncedKey:null, histDay:null,
   user:null, pendView:null, authNotice:null
 };
 const VIEW0="board";
@@ -550,6 +551,10 @@ const SB={
   key:()=>window.FLUXO_CONFIG?.anonKey||localStorage.getItem("fluxo_sb_key")||""
 };
 const iso=()=>new Date().toISOString();
+function mapTicket(r){return {id:r.id,code:r.code,svc:r.svc,prio:r.prio,takenAt:Date.parse(r.taken_at),
+  state:r.state,box:r.box_id,calledAt:r.called_at?Date.parse(r.called_at):null,
+  startedAt:r.started_at?Date.parse(r.started_at):null,endedAt:r.ended_at?Date.parse(r.ended_at):null,
+  absent:r.absent,sim:12000};}
 async function sbInit(){
   const url=SB.url(),key=SB.key();
   if(!url||!key||!window.supabase){SB.mode="demo";return;}
@@ -558,10 +563,7 @@ async function sbInit(){
     const{error}=await SB.client.from("boxes").select("id").limit(1);
     if(error)throw error;
     SB.mode="live";
-    SB.client.channel("fluxo")
-      .on("postgres_changes",{event:"*",schema:"public",table:"tickets"},()=>sbRefresh())
-      .on("postgres_changes",{event:"*",schema:"public",table:"boxes"},()=>sbRefresh())
-      .subscribe();
+    sbSubscribe();
     const{data:sess}=await SB.client.auth.getSession();
     if(sess&&sess.session){
       const{data:prof}=await SB.client.from("staff").select("*").eq("id",sess.session.user.id).single();
@@ -572,20 +574,26 @@ async function sbInit(){
 async function sbRefresh(){
   if(SB.mode!=="live"||!SB.client)return;
   try{
-    const day0=new Date();day0.setHours(0,0,0,0);
+    const d=new Date(),day0=new Date(d);
+    if(d.getHours()<8)day0.setDate(day0.getDate()-1); // journée de tickets : 08h → 08h
+    day0.setHours(8,0,0,0);
+    const from=new Date(day0);
     const[{data:bx},{data:tk}]=await Promise.all([
       SB.client.from("boxes").select("*").order("id"),
-      SB.client.from("tickets").select("*").gte("taken_at",day0.toISOString()).order("taken_at")
+      SB.client.from("tickets").select("*").gte("taken_at",from.toISOString()).order("taken_at")
     ]);
     if(bx)state.boxes=bx.map(b=>({id:b.id,name:b.name,state:b.state,autoNext:b.auto_next,cur:null,autoAt:now(),sim:now()+9000}));
     if(tk){
-      state.tickets=tk.map(r=>({id:r.id,code:r.code,svc:r.svc,prio:r.prio,takenAt:Date.parse(r.taken_at),
-        state:r.state,box:r.box_id,calledAt:r.called_at?Date.parse(r.called_at):null,
-        startedAt:r.started_at?Date.parse(r.started_at):null,endedAt:r.ended_at?Date.parse(r.ended_at):null,
-        absent:r.absent,sim:12000}));
+      state.tickets=tk.map(mapTicket);
       for(const b of state.boxes){
-        b.cur=state.tickets.find(x=>(x.state==="serving"||x.state==="called")&&x.box===b.id)||null;
+        const mine=state.tickets.filter(x=>x.box===b.id&&(x.state==="serving"||x.state==="called"))
+          .sort((a,b2)=>(b2.calledAt||0)-(a.calledAt||0));
+        b.cur=mine.find(x=>!b.current_code||x.code===b.current_code)||mine[0]||null;
         if(b.cur){b.autoAt=now();b.sim=now()+12000;}
+        else if(b.state==="ringing"||b.state==="busy"){ // box orphelin (ticket purgé) : remise à disposition
+          b.state="idle";
+          SB.client.from("boxes").update({state:"idle",current_code:null,updated_at:iso()}).eq("id",b.id).catch(()=>{});
+        }
       }
     }
     const recent=state.tickets.filter(x=>x.state==="called")
@@ -600,6 +608,31 @@ async function sbRefresh(){
     }
     renderAll();
   }catch(e){console.warn("FLUXO : rafraîchissement impossible",e);}
+}
+function isAuthMsg(m){return /401|JWT|session|logged in|log in|anonymous|Accès réservé|Superviseur requis/i.test(m||"");}
+async function sbAct(label,fn){
+  try{await fn();await sbRefresh();return true;}
+  catch(e){
+    const m=(e&&(e.message||(e.raw&&e.raw.message)))||String(e||"erreur");
+    toast(label+" : "+m);
+    if(isAuthMsg(m)){
+      state.user=null;SB.staff=null;renderUserChip();clearLoginFields();
+      switchView("login");
+      state.authNotice="Session expirée — reconnectez-vous.";renderLogin();
+    }
+    return false;
+  }
+}
+function sbSubscribe(){
+  if(SB.mode!=="live"||!SB.client)return;
+  if(SB.chan){try{SB.client.removeChannel(SB.chan);}catch(e){}}
+  SB.chan=SB.client.channel("fluxo")
+    .on("postgres_changes",{event:"*",schema:"public",table:"tickets"},()=>sbRefresh())
+    .on("postgres_changes",{event:"*",schema:"public",table:"boxes"},()=>sbRefresh())
+    .subscribe(st=>{
+      if(st==="SUBSCRIBED")sbRefresh();
+      if(st==="CHANNEL_ERROR"||st==="TIMED_OUT"){clearTimeout(SB.chT);SB.chT=setTimeout(sbSubscribe,4000);}
+    });
 }
 function toast(m){
   const t=$("#toast");t.textContent=m;t.hidden=false;
@@ -625,9 +658,7 @@ function estGlobal(){
 /* ---------- Événements métier ---------- */
 async function callNext(box){
   if(SB.mode==="live"){
-    const{error}=await SB.client.rpc("call_next",{p_box:box.id});
-    if(error)toast("Appel impossible : "+error.message);
-    await sbRefresh();
+    await sbAct("Appel",()=>SB.client.rpc("call_next",{p_box:box.id}));
     return null;
   }
   const q=sortQ();
@@ -643,9 +674,10 @@ async function callNext(box){
 async function arrive(box){
   const t=box.cur;if(!t)return;
   if(SB.mode==="live"){
-    await SB.client.from("tickets").update({state:"serving",started_at:iso()}).eq("id",t.id);
-    await SB.client.from("boxes").update({state:"busy",updated_at:iso()}).eq("id",box.id);
-    await sbRefresh();return;
+    await sbAct("Prise en charge",()=>Promise.all([
+      SB.client.from("tickets").update({state:"serving",started_at:iso()}).eq("id",t.id),
+      SB.client.from("boxes").update({state:"busy",updated_at:iso()}).eq("id",box.id)]));
+    return;
   }
   t.state="serving";t.startedAt=now();box.state="busy";box.autoAt=now();box.sim=now()+t.sim;
   renderAll();
@@ -653,9 +685,10 @@ async function arrive(box){
 async function finish(box){
   const t=box.cur;if(!t)return;
   if(SB.mode==="live"){
-    await SB.client.from("tickets").update({state:"done",ended_at:iso()}).eq("id",t.id);
-    await SB.client.from("boxes").update({state:"idle",current_code:null,updated_at:iso()}).eq("id",box.id);
-    await sbRefresh();return;
+    await sbAct("Fin de prise en charge",()=>Promise.all([
+      SB.client.from("tickets").update({state:"done",ended_at:iso()}).eq("id",t.id),
+      SB.client.from("boxes").update({state:"idle",current_code:null,updated_at:iso()}).eq("id",box.id)]));
+    return;
   }
   t.state="done";t.endedAt=now();box.cur=null;box.state="idle";
   if(box.autoNext){box.autoAt=now()-1600;}
@@ -664,19 +697,20 @@ async function finish(box){
 async function noShow(box){
   const t=box.cur;if(!t)return;
   if(SB.mode==="live"){
-    await SB.client.from("tickets").update({state:"done",absent:true,ended_at:iso()}).eq("id",t.id);
-    await SB.client.from("boxes").update({state:"idle",current_code:null,updated_at:iso()}).eq("id",box.id);
-    await sbRefresh();
-    await callNext(box);return;
+    const ok=await sbAct("Visiteur absent",()=>Promise.all([
+      SB.client.from("tickets").update({state:"done",absent:true,ended_at:iso()}).eq("id",t.id),
+      SB.client.from("boxes").update({state:"idle",current_code:null,updated_at:iso()}).eq("id",box.id)]));
+    if(ok)await callNext(box);return;
   }
   t.absent=true;t.state="done";t.endedAt=now();box.cur=null;box.state="idle";
   callNext(box);
 }
 async function closeBox(box){
   if(SB.mode==="live"){
-    if(box.cur)await SB.client.from("tickets").update({state:"waiting",box_id:null,called_at:null,started_at:null}).eq("id",box.cur.id);
-    await SB.client.from("boxes").update({state:"closed",current_code:null,updated_at:iso()}).eq("id",box.id);
-    await sbRefresh();return;
+    await sbAct("Fermeture du box",()=>Promise.all([
+      box.cur?SB.client.from("tickets").update({state:"waiting",box_id:null,called_at:null,started_at:null}).eq("id",box.cur.id):Promise.resolve(),
+      SB.client.from("boxes").update({state:"closed",current_code:null,updated_at:iso()}).eq("id",box.id)]));
+    return;
   }
   if(box.cur){
     const t=box.cur;
@@ -687,8 +721,8 @@ async function closeBox(box){
 async function togglePause(box){
   if(SB.mode==="live"){
     const target=box.state==="pause"?"idle":"pause";
-    await SB.client.from("boxes").update({state:target,updated_at:iso()}).eq("id",box.id);
-    await sbRefresh();return;
+    await sbAct("Mise en pause",()=>SB.client.from("boxes").update({state:target,updated_at:iso()}).eq("id",box.id));
+    return;
   }
   if(box.state==="pause"){box.state="idle";box.autoAt=now();}
   else if(box.state==="idle"){box.state="pause";}
@@ -728,6 +762,14 @@ function chime(){
   if(!state.sound)return;
   try{const c=ac();if(c.state==="suspended")c.resume();const t=c.currentTime;tone(880,t,0.35);tone(659.25,t+0.28,0.55);}catch(e){}
 }
+document.addEventListener("visibilitychange",async()=>{
+  if(document.visibilityState!=="visible"||SB.mode!=="live"||!SB.client)return;
+  try{const{error}=await SB.client.auth.getUser();if(error)throw error;sbRefresh();}
+  catch(e){
+    state.user=null;SB.staff=null;renderUserChip();clearLoginFields();
+    if(state.view==="console"||state.view==="regie"){switchView("login");state.authNotice="Session expirée — reconnectez-vous.";renderLogin();}
+  }
+});
 document.addEventListener("pointerdown",()=>{ // déverrouille audio + voix au premier contact
   try{const c=ac();if(c.state==="suspended")c.resume();}catch(e){}
   try{const sy=window.speechSynthesis;if(sy){const u=new SpeechSynthesisUtterance(" ");u.volume=0;sy.speak(u);}}catch(e){}
@@ -957,7 +999,7 @@ function renderConsole(){
     ? q.slice(0,5).map(x=>`<div class="qrow"><span class="qc">${x.code}</span><span class="qs"><i class="svc-dot" style="background:${svcOf(x).color}"></i>${svcOf(x).label}${x.prio?' <span class="star">★</span>':''}</span><span class="qw">${mmss(now()-x.takenAt)}</span></div>`).join("")
     : '<div class="qempty">Personne en attente.</div>';
   $("#cAuto").checked=box.autoNext;
-  $("#cDemoNote").hidden=!state.demo;
+  $("#cDemoNote").hidden=!state.demo||SB.mode==="live";
 }
 function stag(t){
   if(t.state==="done")return t.absent?'<span class="stag" style="color:var(--rouge);background:#FDEBEC"><i></i>Absent</span>':'<span class="stag" style="color:#3D6B28;background:#EFF6E9"><i></i>Terminé</span>';
@@ -994,7 +1036,9 @@ function renderRegie(){
     const act=b.state==="closed"?`<button class="btn ghost sm" data-bact="open" data-bid="${b.id}">Ouvrir</button>`:`<button class="btn ghost sm" data-bact="close" data-bid="${b.id}">Fermer</button>`;
     return `<tr><td class="code">${b.name}</td><td>${stTag}</td><td class="code">${b.cur?b.cur.code:"—"}</td><td class="num">${d}</td><td style="text-align:right">${act}</td></tr>`;
   }).join("");
-  $("#tTickets").innerHTML="<tr><th>N°</th><th>Service</th><th>Émis</th><th>Attente</th><th>État</th><th>Box</th></tr>"+state.tickets.slice().sort((a,b)=>b.takenAt-a.takenAt).slice(0,12).map(t=>{
+  const hist=state.histDay,list=hist?hist.list:state.tickets;
+  $("#tTickTitle").textContent=hist?("Tickets du "+hist.label):"Derniers tickets";
+  $("#tTickets").innerHTML="<tr><th>N°</th><th>Service</th><th>Émis</th><th>Attente</th><th>État</th><th>Box</th></tr>"+list.slice().sort((a,b)=>b.takenAt-a.takenAt).slice(0,15).map(t=>{
     const wait=t.calledAt?t.calledAt-t.takenAt:(t.state==="waiting"?now()-t.takenAt:0);
     return `<tr><td class="code">${t.code}</td><td>${svcOf(t).label}</td><td class="num">${new Date(t.takenAt).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})}</td><td class="num">${mmss(wait)}</td><td>${stag(t)}</td><td class="num">${t.box?"B"+t.box:"—"}</td></tr>`;
   }).join("");
@@ -1117,8 +1161,25 @@ function bind(){
     if(!u.startsWith("http")||k.length<20){toast("URL ou clé invalide — vérifiez Settings → API Keys (clé publishable).");return;}
     localStorage.setItem("fluxo_sb_url",u);localStorage.setItem("fluxo_sb_key",k);location.reload();
   });
+  $("#histDate").addEventListener("change",async e=>{
+    const v=e.target.value;
+    if(!v){state.histDay=null;renderRegie();return;}
+    const d0=new Date(v+"T08:00:00"); // même découpe 08h → 08h pour l'historique
+    const d1=new Date(d0);d1.setDate(d1.getDate()+1);
+    const n=new Date();
+    if(n>=d0&&n<d1){state.histDay=null;renderRegie();return;} // journée en cours = vue live
+    const{data,error}=await SB.client.from("tickets").select("*")
+      .gte("taken_at",d0.toISOString()).lt("taken_at",d1.toISOString()).order("taken_at",{ascending:false});
+    if(error){toast("Historique : "+error.message);return;}
+    state.histDay={list:data.map(mapTicket),label:cap(d0.toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"}))};
+    renderRegie();
+  });
   $("#resetDay").addEventListener("click",async()=>{
-    if(SB.mode==="live"){await SB.client.rpc("reset_day");await sbRefresh();return;}
+    if(SB.mode==="live"){
+      const ok=await sbAct("Réinitialisation",()=>SB.client.rpc("reset_day"));
+      if(ok){$("#histDate").value="";state.histDay=null;toast("Journée réinitialisée — la prochaine série repart de A01.");}
+      return;
+    }
     seed();renderAll();
   });
   $("#roleGrid").addEventListener("click",e=>{
@@ -1149,6 +1210,7 @@ async function init(){
   if(SB.mode==="demo")seed();else await sbRefresh();
   buildSvcGrid();
   bind();
+  $("#histDate").style.display=SB.mode==="live"?"":"none";
   state.sound=localStorage.getItem("fluxo_sound")!=="0";
   state.voice=localStorage.getItem("fluxo_voice")!=="0";
   $("#sndOn").style.display=state.sound?"":"none";$("#sndOff").style.display=state.sound?"none":"";
